@@ -50,13 +50,18 @@ class PreProcessor(ProcessingBase):
 
     def _get_fun_defaults(self, node):
         defaults = {}
-        start = len(node.args.args) - len(node.args.defaults)
+        pos_args = []
+        if node.args.posonlyargs:
+            pos_args.extend(node.args.posonlyargs)
+        pos_args.extend(node.args.args)
+
+        start = len(pos_args) - len(node.args.defaults)
         for cnt, d in enumerate(node.args.defaults, start=start):
             if not d:
                 continue
 
             self.visit(d)
-            defaults[node.args.args[cnt].arg] = self.decode_node(d)
+            defaults[pos_args[cnt].arg] = self.decode_node(d)
 
         start = len(node.args.kwonlyargs) - len(node.args.kw_defaults)
         for cnt, d in enumerate(node.args.kw_defaults, start=start):
