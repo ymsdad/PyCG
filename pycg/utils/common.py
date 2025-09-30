@@ -18,6 +18,13 @@
 # specific language governing permissions and limitations
 # under the License.
 #
+# MODIFIED:
+# This file has been modified from the original.
+# Modifications Copyright (c) 2025 [Your Name/Company]
+#
+# Changes:
+# - The `to_mod_name` function was improved to correctly convert file paths 
+#   into module names, especially for compiled shared object (`.so`) files.
 import os
 
 
@@ -44,7 +51,6 @@ def join_ns(*args):
 def to_mod_name(name, package=None):
     name_parts = name.split(os.path.sep)
     # This is for shared objects
-    # e.g. PIL/_imaging.cpython-310-x86_64-linux-gnu.so -> PIL._imaging
     if len(name_parts) > 0:
         name_parts[-1] = name_parts[-1].split(".")[0]
 

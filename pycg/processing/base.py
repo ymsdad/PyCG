@@ -18,6 +18,14 @@
 # specific language governing permissions and limitations
 # under the License.
 #
+# MODIFIED:
+# This file has been modified from the original.
+# Modifications Copyright (c) 2025 [Your Name/Company]
+#
+# Changes:
+# - The import handling logic was updated to use the `files_whitelist`, 
+#   ensuring the analysis only processes whitelisted files.
+
 import ast
 import os
 

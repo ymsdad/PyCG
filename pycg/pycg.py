@@ -18,6 +18,13 @@
 # specific language governing permissions and limitations
 # under the License.
 #
+# MODIFIED:
+# This file has been modified from the original.
+# Modifications Copyright (c) 2025 [Your Name/Company]
+#
+# Changes:
+# - The CallGraphGenerator was updated to accept a `files_whitelist`. If one 
+#   isn't provided, it now defaults to all Python files in the package.
 import os
 
 from pycg import utils

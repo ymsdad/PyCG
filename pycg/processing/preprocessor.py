@@ -18,6 +18,15 @@
 # specific language governing permissions and limitations
 # under the License.
 #
+# MODIFIED:
+# This file has been modified from the original.
+# Modifications Copyright (c) 2025 [Your Name/Company]
+#
+# Changes:
+# - The logic for analyzing submodules was updated to respect the `files_whitelist`.
+# - A bug was fixed in how external definitions are created for modules that are not analyzed.
+# - Support was added to correctly handle default values for positional-only arguments in function definitions.
+
 import ast
 
 from pycg import utils

@@ -18,6 +18,14 @@
 # specific language governing permissions and limitations
 # under the License.
 #
+# MODIFIED:
+# This file has been modified from the original.
+# Modifications Copyright (c) 2025 [Your Name/Company]
+#
+# Changes:
+# - The ImportManager class has been updated to support a `files_whitelist`, 
+#   allowing for more control over which modules are processed.
+
 import copy
 import importlib
 import os
