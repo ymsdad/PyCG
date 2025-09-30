@@ -60,9 +60,13 @@ class ImportManager(object):
         self.mod_dir = None
         self.old_path_hooks = None
         self.old_path = None
+        self.files_whitelist = None
 
     def set_pkg(self, input_pkg):
         self.mod_dir = input_pkg
+
+    def set_files_whitelist(self, files_whitelist):
+        self.files_whitelist = files_whitelist
 
     def get_mod_dir(self):
         return self.mod_dir

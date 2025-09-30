@@ -42,4 +42,10 @@ def join_ns(*args):
 
 
 def to_mod_name(name, package=None):
-    return os.path.splitext(name)[0].replace("/", ".")
+    name_parts = name.split(os.path.sep)
+    # This is for shared objects
+    # e.g. PIL/_imaging.cpython-310-x86_64-linux-gnu.so -> PIL._imaging
+    if len(name_parts) > 0:
+        name_parts[-1] = name_parts[-1].split(".")[0]
+
+    return ".".join(name_parts)

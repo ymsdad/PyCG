@@ -35,12 +35,21 @@ from pycg.processing.preprocessor import PreProcessor
 
 
 class CallGraphGenerator(object):
-    def __init__(self, entry_points, package, max_iter, operation):
+    def __init__(self, entry_points, package, max_iter, operation, files_whitelist=None):
         self.entry_points = entry_points
         self.package = package
         self.state = None
         self.max_iter = max_iter
         self.operation = operation
+        if files_whitelist:
+            self.files_whitelist = files_whitelist
+        else:
+            self.files_whitelist = []
+            for root, _, files in os.walk(package):
+                for file in files:
+                    if not file.endswith(".py"):
+                        continue
+                    self.files_whitelist.append(os.path.join(root, file))
         self.setUp()
 
     def setUp(self):
@@ -141,6 +150,7 @@ class CallGraphGenerator(object):
             if input_mod not in modules_analyzed:
                 if install_hooks:
                     self.import_manager.set_pkg(input_pkg)
+                    self.import_manager.set_files_whitelist(self.files_whitelist)
                     self.import_manager.install_hooks()
 
                 processor = cls(

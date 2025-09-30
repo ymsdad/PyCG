@@ -28,7 +28,6 @@ from pycg.machinery.definitions import Definition
 class ProcessingBase(ast.NodeVisitor):
     def __init__(self, filename, modname, modules_analyzed):
         self.modname = modname
-
         self.modules_analyzed = modules_analyzed
         self.modules_analyzed.add(self.modname)
 
@@ -500,6 +499,7 @@ class ProcessingBase(ast.NodeVisitor):
             not fname
             or not fname.endswith(".py")
             or self.import_manager.get_mod_dir() not in fname
+            or fname not in self.import_manager.files_whitelist
         ):
             return
 
