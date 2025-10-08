@@ -513,9 +513,16 @@ class ProcessingBase(ast.NodeVisitor):
 
         self.import_manager.set_current_mod(imp, fname)
 
-        visitor = cls(fname, imp, *args, **kwargs)
-        visitor.analyze()
-        self.merge_modules_analyzed(visitor.get_modules_analyzed())
+        try:
+            visitor = cls(fname, imp, *args, **kwargs)
+            visitor.analyze()
+            self.merge_modules_analyzed(visitor.get_modules_analyzed())
+        except Exception as e:
+            # Catch any other unexpected errors during analysis
+            self.modules_analyzed.add(imp)
+        finally:
+            # Always restore the current module context
+            self.import_manager.set_current_mod(self.modname, self.filename)
 
         self.import_manager.set_current_mod(self.modname, self.filename)
 

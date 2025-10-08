@@ -178,6 +178,8 @@ class PreProcessor(ProcessingBase):
                     create_def(current_scope, name, defi)
                     current_scope.get_def(name).get_name_pointer().add(defi.get_ns())
             else:
+                if not imported_scope:
+                    return
                 # if it exists in the imported scope then copy it
                 defi = imported_scope.get_def(imp_name)
                 if not defi:
