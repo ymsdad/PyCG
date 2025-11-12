@@ -1,8 +1,0 @@
-{
-    "main": [
-        "main.func",
-        "<builtin>.range"
-    ],
-    "main.func": [],
-    "<builtin>.range": []
-}
