@@ -10,18 +10,17 @@ import logging
 import tree_sitter_cpp as ts_cpp
 
 from tree_sitter import Language, Parser, Node as TSNode
-from typing import Set, Tuple, TYPE_CHECKING
+from typing import Set, Tuple
 from machinery.definitions import Definition, DefinitionManager
 from machinery.files import FileManager
 from machinery.funcs import FuncManager
-from machinery.scopes import ScopeManager
+from machinery.scopes import ScopeManager,ScopeItem
 
 import utils
 from utils.constants import GLOBAL_NAME, RETURN_NAME, INVALID_NAME, DefType
 
 from .visitor import TSVisitor
-if TYPE_CHECKING:
-    from machinery.scopes import ScopeItem
+
 
 logger = logging.getLogger(__name__)
 CPP_LANG = Language(ts_cpp.language())
@@ -51,6 +50,9 @@ class ProcessingBase(TSVisitor):
         except Exception as e:
             print(f"Failed to read file {file_abs}: {e}")
             return
+        self.analyze_code(code)
+    
+    def analyze_code(self, code: str):
         tree = PARSER.parse(bytes(code, "utf-8"))
         self.visit(tree.root_node)
 
@@ -60,7 +62,7 @@ class ProcessingBase(TSVisitor):
         self.name_stack.pop()
 
     def visit_function_definition(self, node: TSNode):
-        func_name, _ = self._visit_decl_decl(node)
+        func_name, _ = self._visit_decl_decl(node.child_by_field_name("declarator"))
         if not func_name:
             func_name = "<anon>"
         self.name_stack.append(func_name)
@@ -71,6 +73,8 @@ class ProcessingBase(TSVisitor):
         if node.type == "identifier":
             return node.text.decode("utf-8").strip(), False
         elif node.type == "field_identifier":
+            return node.text.decode("utf-8").strip(), False
+        elif node.type == "type_identifier":
             return node.text.decode("utf-8").strip(), False
         elif node.type == "pointer_declarator":
             return self._visit_decl_decl(node.child_by_field_name("declarator"))

@@ -1,13 +1,11 @@
 
-from cppcg.machinery.definitions import Definition
+from machinery.definitions import Definition
 import utils
 
-from utils.constants import GLOBAL_NAME, DefType, UNKNOWN_RET_TYPE
+from utils.constants import GLOBAL_NAME, RETURN_NAME, DefType, UNKNOWN_RET_TYPE
 from .base import ProcessingBase
-from typing import TYPE_CHECKING, List, Tuple
-
-if TYPE_CHECKING:
-    from tree_sitter import Node as TSNode
+from typing import List, Tuple
+from tree_sitter import Node as TSNode
 
 class PreProcessor(ProcessingBase):
     def __init__(
@@ -76,7 +74,7 @@ class PreProcessor(ProcessingBase):
         return type_name
 
     def __visit_declaration(self, node: TSNode):
-        type_name = self.__visit_decl_type(node.children_by_field_name("type"))
+        type_name = self.__visit_decl_type(node.child_by_field_name("type"))
         decl_node = node.child_by_field_name("declarator")
         if decl_node:
             decl_name, is_func= self._visit_decl_decl(decl_node)
@@ -90,7 +88,7 @@ class PreProcessor(ProcessingBase):
         elif node.type == "type_definition":
             deftype = DefType.TYPE_DEF            
         decl_def, _ = self._create_def_and_scope(decl_name, deftype)
-        if deftype & DefType.NAME_DEF:
+        if deftype & (DefType.NAME_DEF | DefType.TYPE_DEF):
             decl_def.get_name_pointer().add(type_name)
 
     def __visit_decl_type(self, node: TSNode) -> str:
@@ -108,10 +106,10 @@ class PreProcessor(ProcessingBase):
         
     def __resolve_args(self, node: TSNode) -> List[Tuple[str, str]]:
         cur_node = node
-        while cur_node.type.endswith("function_declarator"):
+        while not cur_node.type.endswith("function_declarator"):
             cur_node = cur_node.child_by_field_name("declarator")
             if not cur_node:
-                return None
+                return []
         results = []
         params = cur_node.child_by_field_name("parameters")
         for param in params.children:
@@ -133,6 +131,10 @@ class PreProcessor(ProcessingBase):
 
     def __handle_function_def(self, node: TSNode, func_name, ret_type=UNKNOWN_RET_TYPE) -> Definition:
         func_def, func_sc = self._create_def_and_scope(func_name, DefType.FUNC_DEF)
+        func_ret_ns = utils.join_ns(func_def.get_ns(), RETURN_NAME)
+        func_ret_def = self.def_manager.create(func_ret_ns, DefType.NAME_DEF)
+        func_ret_def.get_name_pointer().add(ret_type)
+        func_sc.add_def(RETURN_NAME, func_ret_def)
 
         # creaete arg definitions
         func_name_pointer = func_def.get_name_pointer()
