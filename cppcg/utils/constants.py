@@ -18,17 +18,22 @@
 # specific language governing permissions and limitations
 # under the License.
 #
+
+from enum import IntFlag
+
+class DefType(IntFlag):
+    FUNC_DEF = 1
+    NAME_DEF = 2
+    TYPE_DEF = 4
+    ROOT_DEF = 8
+    EXT_DEF = 16
+
+GLOBAL_NAME = "<global>"
 RETURN_NAME = "<RETURN>"
 LAMBDA_NAME = "<LAMBDA_{}>"  # needs to be formatted
 BUILTIN_NAME = "<builtin>"
 EXT_NAME = "<external>"
-
-FUN_DEF = "FUNCTIONDEF"
-NAME_DEF = "NAMEDEF"
-MOD_DEF = "MODULEDEF"
-CLS_DEF = "CLASSDEF"
-EXT_DEF = "EXTERNALDEF"
-STRUCT_DEF = "STRUCTDEF"
+UNKNOWN_RET_TYPE = "<unknown>"
 
 OBJECT_BASE = "object"
 

@@ -1,4 +1,8 @@
-from pycg.processing.base import ProcessingBase
+from .base import ProcessingBase
+from typing import TYPE_CHECKING, List, Tuple
+
+if TYPE_CHECKING:
+    from tree_sitter import Node as TSNode
 
 
 class PostProcessor(ProcessingBase):
@@ -20,8 +24,17 @@ class PostProcessor(ProcessingBase):
         self.class_manager = class_manager
         self.module_manager = module_manager
 
-    def analyze(self):
-        # Complete the closure for downstream processors
-        # (No Python AST traversal for C)
-        self.closured = self.def_manager.transitive_closure()
+    def visit_assignment_expression(self, node: TSNode):
+        super()._visit_assignment_expression(node)
 
+    def visit_call_expression(self, node: TSNode):
+        pass
+
+    def visit_function_definition(self, node: TSNode):
+        pass
+        
+    def _visit_assignment_expression(self, node: TSNode):
+        pass
+
+    def visit_return_statement(self, node: TSNode):
+        pass
