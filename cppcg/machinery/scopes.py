@@ -115,7 +115,7 @@ class ScopeManager(object):
         if namespace in self.get_scopes():
             return self.get_scopes()[namespace]
 
-    def create_scope(self, namespace: str, parent, node: TSNode) -> ScopeItem:
+    def create_scope(self, namespace: str, parent, node: Optional[TSNode]=None) -> ScopeItem:
         if namespace not in self.scopes:
             sc = ScopeItem(namespace, parent, node)
             self.scopes[namespace] = sc

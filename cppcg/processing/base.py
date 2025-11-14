@@ -10,7 +10,7 @@ import logging
 import tree_sitter_cpp as ts_cpp
 
 from tree_sitter import Language, Parser, Node as TSNode
-from typing import Set, Tuple
+from typing import Set, Tuple, Optional
 from machinery.definitions import Definition, DefinitionManager
 from machinery.files import FileManager
 from machinery.funcs import FuncManager
@@ -113,7 +113,7 @@ class ProcessingBase(TSVisitor):
         self.generic_visit(node.child_by_field_name("body"))
         self.name_stack.pop()
 
-    def _create_def_and_scope(self, target_name: str, def_type: DefType, node: TSNode) -> Tuple[Definition, ScopeItem]:
+    def _create_def_and_scope(self, target_name: str, def_type: DefType, node: Optional[TSNode]=None) -> Tuple[Definition, ScopeItem]:
         parent_sc = self.scope_manager.get_scope(self.current_ns)
         target_ns = utils.join_ns(self.current_ns, target_name)
         sc = self.scope_manager.create_scope(target_ns, parent_sc, node)
@@ -123,7 +123,7 @@ class ProcessingBase(TSVisitor):
         parent_sc.add_def(target_name, defi)
         return defi, sc
 
-    def _create_global_def_and_scope(self, target_name: str, def_type: DefType, node: TSNode) -> Tuple[Definition, ScopeItem]:
+    def _create_global_def_and_scope(self, target_name: str, def_type: DefType, node: Optional[TSNode]=None) -> Tuple[Definition, ScopeItem]:
         parent_sc = self.scope_manager.get_scope(GLOBAL_NAME)
         target_ns = utils.join_ns(GLOBAL_NAME, target_name)
         sc = self.scope_manager.create_scope(target_ns, parent_sc, node)
