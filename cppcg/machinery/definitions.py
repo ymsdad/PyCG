@@ -97,29 +97,6 @@ class DefinitionManager(object):
     def get_defs(self) -> Dict[str, Definition]:
         return self.defs
 
-    def handle_function_def(self, parent_ns: str, fn_name: str, ret_type: str) -> Definition:
-        full_ns = utils.join_ns(parent_ns, fn_name)
-        defi = self.get(full_ns)
-        if not defi:
-            defi = self.create(full_ns, DefType.FUNC_DEF)
-            defi.decorator_names = set()
-
-        return_ns = utils.join_ns(full_ns, RETURN_NAME)
-        if not self.get(return_ns):
-            ret_defi = self.create(return_ns, DefType.NAME_DEF)
-            if ret_type != UNKNOWN_RET_TYPE:
-                ret_defi.get_name_pointer().add(ret_type)
-
-        return defi
-
-    def handle_type_def(self, parent_ns, type_name) -> Definition:
-        full_ns = utils.join_ns(parent_ns, type_name)
-        defi = self.get(full_ns)
-        if not defi:
-            defi = self.create(full_ns, DefType.TYPE_DEF)
-
-        return defi
-
     def transitive_closure(self):
         closured = {}
 

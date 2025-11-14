@@ -17,7 +17,7 @@ class PreProcessor(ProcessingBase):
         defi = self.def_manager.get(GLOBAL_NAME)
         if not defi:
             defi = self.def_manager.create(GLOBAL_NAME, DefType.ROOT_DEF)
-        root_sc = self.scope_manager.create_scope(GLOBAL_NAME, None)
+        root_sc = self.scope_manager.create_scope(GLOBAL_NAME, None, node)
         root_sc.add_def(GLOBAL_NAME, defi)
         super().visit_translation_unit(node)
 
@@ -48,7 +48,7 @@ class PreProcessor(ProcessingBase):
         else: 
             struct_counter = self.scope_manager.get_scope(self.current_ns).inc_struct_counter()
             struct_name = utils.get_struct_name(struct_counter)
-        self._create_def_and_scope(struct_name, DefType.TYPE_DEF)
+        self._create_def_and_scope(struct_name, DefType.TYPE_DEF, node)
         body_node = node.child_by_field_name("body")
         if body_node:
             self.name_stack.append(struct_name)
@@ -65,11 +65,14 @@ class PreProcessor(ProcessingBase):
         if name_node:
             name = name_node.text.decode("utf-8").strip()
             # Create a definition for the enumerator
-            self._create_global_def_and_scope(name, DefType.NAME_DEF)
+            self._create_global_def_and_scope(name, DefType.NAME_DEF, node)
 
     def visit_primitive_type(self, node: TSNode) -> str:
         type_name = node.text.decode("utf-8").strip()
-        defi = self.def_manager.handle_type_def(GLOBAL_NAME, type_name)
+        type_ns = utils.join_ns(GLOBAL_NAME, type_name)
+        defi = self.def_manager.get(type_ns)
+        if not defi:
+            defi = self.def_manager.create(type_ns, DefType.TYPE_DEF)
         self.scope_manager.get_scope(GLOBAL_NAME).add_def(type_name, defi)
         return type_name
 
@@ -90,13 +93,13 @@ class PreProcessor(ProcessingBase):
         elif node.type == "type_definition":
             deftype = DefType.TYPE_DEF
         
-        decl_def, decl_sc = self._create_def_and_scope(decl_name, deftype)
+        decl_def, decl_sc = self._create_def_and_scope(decl_name, deftype, node)
         if deftype & (DefType.NAME_DEF | DefType.TYPE_DEF):
             decl_def.get_name_pointer().add(type_name)
         if deftype & DefType.FUNC_DEF:
             # create return type
             self.name_stack.append(decl_name)
-            ret_def, _ = self._create_def_and_scope(RETURN_NAME, DefType.NAME_DEF)
+            ret_def, _ = self._create_def_and_scope(RETURN_NAME, DefType.NAME_DEF, None)
             self.name_stack.pop()
             ret_def.get_name_pointer().add(type_name)
             decl_sc.add_def(RETURN_NAME, ret_def)
@@ -127,19 +130,19 @@ class PreProcessor(ProcessingBase):
                 continue
             type_node = param.child_by_field_name("type")
             if not type_node:
-                results.append((None, None))
+                results.append((None, None, None))
                 continue
             type_name = self.__visit_decl_type(type_node)
             name_node = param.child_by_field_name("declarator")
             if not name_node:
-                results.append((None, None))
+                results.append((None, None, None))
                 continue
             name = self._visit_decl_decl(name_node)[0]
-            results.append((name, type_name))
+            results.append((name, type_name, param))
         return results
 
     def __handle_function_def(self, node: TSNode, func_name, ret_type=UNKNOWN_RET_TYPE) -> Definition:
-        func_def, func_sc = self._create_def_and_scope(func_name, DefType.FUNC_DEF)
+        func_def, func_sc = self._create_def_and_scope(func_name, DefType.FUNC_DEF, node)
         func_ret_ns = utils.join_ns(func_def.get_ns(), RETURN_NAME)
         func_ret_def = self.def_manager.create(func_ret_ns, DefType.NAME_DEF)
         func_ret_def.get_name_pointer().add(ret_type)
@@ -148,11 +151,11 @@ class PreProcessor(ProcessingBase):
         # creaete arg definitions
         func_name_pointer = func_def.get_name_pointer()
         args = self.__resolve_args(node)
-        for pos, (arg_name, arg_type) in enumerate(args):
+        for pos, (arg_name, arg_type, arg_node) in enumerate(args):
             if arg_name is None:
                 continue
             arg_ns = utils.join_ns(func_def.get_ns(), arg_name)
-            self.scope_manager.create_scope(arg_ns, func_sc)
+            self.scope_manager.create_scope(arg_ns, func_sc, arg_node)
             func_name_pointer.add_pos_arg(pos, arg_name, arg_ns)
             arg_def = self.def_manager.get(arg_ns)
             if not arg_def:

@@ -113,20 +113,20 @@ class ProcessingBase(TSVisitor):
         self.generic_visit(node.child_by_field_name("body"))
         self.name_stack.pop()
 
-    def _create_def_and_scope(self, target_name: str, def_type: DefType) -> Tuple[Definition, ScopeItem]:
+    def _create_def_and_scope(self, target_name: str, def_type: DefType, node: TSNode) -> Tuple[Definition, ScopeItem]:
         parent_sc = self.scope_manager.get_scope(self.current_ns)
         target_ns = utils.join_ns(self.current_ns, target_name)
-        sc = self.scope_manager.create_scope(target_ns, parent_sc)
+        sc = self.scope_manager.create_scope(target_ns, parent_sc, node)
         defi = self.def_manager.get(target_ns)
         if not defi:
             defi = self.def_manager.create(target_ns, def_type)
         parent_sc.add_def(target_name, defi)
         return defi, sc
 
-    def _create_global_def_and_scope(self, target_name: str, def_type: DefType) -> Tuple[Definition, ScopeItem]:
+    def _create_global_def_and_scope(self, target_name: str, def_type: DefType, node: TSNode) -> Tuple[Definition, ScopeItem]:
         parent_sc = self.scope_manager.get_scope(GLOBAL_NAME)
         target_ns = utils.join_ns(GLOBAL_NAME, target_name)
-        sc = self.scope_manager.create_scope(target_ns, parent_sc)
+        sc = self.scope_manager.create_scope(target_ns, parent_sc, node)
         defi = self.def_manager.get(target_ns)
         if not defi:
             defi = self.def_manager.create(target_ns, def_type)

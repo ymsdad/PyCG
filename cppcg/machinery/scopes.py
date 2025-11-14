@@ -20,11 +20,11 @@
 #
 from typing import Dict, Optional
 
-import utils
 from .definitions import Definition
+from tree_sitter import Node as TSNode
 
 class ScopeItem(object):
-    def __init__(self, fullns, parent):
+    def __init__(self, fullns, parent, node: TSNode):
         if parent and not isinstance(parent, ScopeItem):
             raise ScopeError("Parent must be a ScopeItem instance")
 
@@ -37,6 +37,7 @@ class ScopeItem(object):
         self.struct_counter = 0
         self.field_counter = 0
         self.fullns = fullns
+        self.node = node
 
     def get_ns(self) -> str:
         return self.fullns
@@ -114,9 +115,9 @@ class ScopeManager(object):
         if namespace in self.get_scopes():
             return self.get_scopes()[namespace]
 
-    def create_scope(self, namespace: str, parent) -> ScopeItem:
+    def create_scope(self, namespace: str, parent, node: TSNode) -> ScopeItem:
         if namespace not in self.scopes:
-            sc = ScopeItem(namespace, parent)
+            sc = ScopeItem(namespace, parent, node)
             self.scopes[namespace] = sc
         return self.scopes[namespace]
 
