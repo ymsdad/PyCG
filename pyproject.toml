@@ -5,9 +5,17 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    # Use modern py-tree-sitter API
-    "tree-sitter>=0.21",
-    "pytest>=7.0.0",
+    "tree-sitter>=0.25",
+    "tree-sitter-cpp>=0.23"
+]
+
+[tool.setuptools]
+package-dir = {"cppcg" = "cppcg"}
+
+[project.optional-dependencies]
+test = [
+    "pytest",
+    "pytest-timeout"
 ]
 
 [tool.pytest.ini_options]

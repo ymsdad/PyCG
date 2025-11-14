@@ -83,13 +83,23 @@ class PreProcessor(ProcessingBase):
             decl_name = utils.get_field_name(field_counter)
             is_func = False
         deftype = DefType.NAME_DEF
-        if is_func and node.type != "field_declaration":
+        if is_func:
             deftype = DefType.FUNC_DEF
+            if node.type == "field_declaration":
+                deftype |= DefType.NAME_DEF
         elif node.type == "type_definition":
-            deftype = DefType.TYPE_DEF            
-        decl_def, _ = self._create_def_and_scope(decl_name, deftype)
+            deftype = DefType.TYPE_DEF
+        
+        decl_def, decl_sc = self._create_def_and_scope(decl_name, deftype)
         if deftype & (DefType.NAME_DEF | DefType.TYPE_DEF):
             decl_def.get_name_pointer().add(type_name)
+        if deftype & DefType.FUNC_DEF:
+            # create return type
+            self.name_stack.append(decl_name)
+            ret_def, _ = self._create_def_and_scope(RETURN_NAME, DefType.NAME_DEF)
+            self.name_stack.pop()
+            ret_def.get_name_pointer().add(type_name)
+            decl_sc.add_def(RETURN_NAME, ret_def)
 
     def __visit_decl_type(self, node: TSNode) -> str:
         if node.type == "type_identifier":
@@ -114,7 +124,6 @@ class PreProcessor(ProcessingBase):
         params = cur_node.child_by_field_name("parameters")
         for param in params.children:
             if param.type != "parameter_declaration":
-                results.append((None, None))
                 continue
             type_node = param.child_by_field_name("type")
             if not type_node:
@@ -138,12 +147,12 @@ class PreProcessor(ProcessingBase):
 
         # creaete arg definitions
         func_name_pointer = func_def.get_name_pointer()
-        func_name_pointer.add(ret_type)
         args = self.__resolve_args(node)
         for pos, (arg_name, arg_type) in enumerate(args):
             if arg_name is None:
                 continue
             arg_ns = utils.join_ns(func_def.get_ns(), arg_name)
+            self.scope_manager.create_scope(arg_ns, func_sc)
             func_name_pointer.add_pos_arg(pos, arg_name, arg_ns)
             arg_def = self.def_manager.get(arg_ns)
             if not arg_def:
