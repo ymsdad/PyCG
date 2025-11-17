@@ -13,6 +13,17 @@ class PreProcessor(ProcessingBase):
     ):
         super().__init__(*args, **kwargs)
 
+    def analyze_file(self, file_rel: str):
+        file_abs = self.file_manager.file_abs_path(file_rel)
+        try:
+            with open(file_abs, "r") as fr:
+                code = fr.read()
+        except Exception as e:
+            print(f"Failed to read file {file_abs}: {e}")
+            return
+        self.analyze_code(code)
+
+
     def visit_translation_unit(self, node: TSNode):
         defi = self.def_manager.get(GLOBAL_NAME)
         if not defi:
@@ -48,7 +59,7 @@ class PreProcessor(ProcessingBase):
         else: 
             struct_counter = self.scope_manager.get_scope(self.current_ns).inc_struct_counter()
             struct_name = utils.get_struct_name(struct_counter)
-        self._create_def_and_scope(struct_name, DefType.TYPE_DEF, node)
+        self._create_def_and_scope(struct_name, DefType.TYPE_DEF, node=node)
         body_node = node.child_by_field_name("body")
         if body_node:
             self.name_stack.append(struct_name)
@@ -65,7 +76,7 @@ class PreProcessor(ProcessingBase):
         if name_node:
             name = name_node.text.decode("utf-8").strip()
             # Create a definition for the enumerator
-            self._create_global_def_and_scope(name, DefType.NAME_DEF)
+            self._create_def_and_scope(name, DefType.NAME_DEF, parent_ns=GLOBAL_NAME)
 
     def visit_primitive_type(self, node: TSNode) -> str:
         type_name = node.text.decode("utf-8").strip()
@@ -116,6 +127,7 @@ class PreProcessor(ProcessingBase):
             return "int"
         elif node.type == "union_specifier":
             return self.visit_union_specifier(node)
+        return node.text.decode("utf-8").strip()
         
     def __resolve_args(self, node: TSNode) -> List[Tuple[str, str]]:
         cur_node = node
@@ -142,7 +154,7 @@ class PreProcessor(ProcessingBase):
         return results
 
     def __handle_function_def(self, node: TSNode, func_name, ret_type=UNKNOWN_RET_TYPE) -> Definition:
-        func_def, func_sc = self._create_def_and_scope(func_name, DefType.FUNC_DEF, node)
+        func_def, func_sc = self._create_def_and_scope(func_name, DefType.FUNC_DEF, node=node)
         func_ret_ns = utils.join_ns(func_def.get_ns(), RETURN_NAME)
         func_ret_def = self.def_manager.create(func_ret_ns, DefType.NAME_DEF)
         func_ret_def.get_name_pointer().add(ret_type)

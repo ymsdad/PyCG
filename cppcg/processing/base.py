@@ -28,29 +28,17 @@ PARSER = Parser(CPP_LANG)
 
 class ProcessingBase(TSVisitor):
     def __init__(
-        self, fill_rel: str,
+        self,
         def_manager: DefinitionManager,
         file_manager: FileManager,
         func_manager: FuncManager,
         scope_manager: ScopeManager
     ):
-        self.file_rel = fill_rel
-
         self.def_manager = def_manager
         self.file_manager = file_manager
         self.func_manager = func_manager
         self.scope_manager = scope_manager
         self.name_stack = []
-
-    def analyze(self):
-        file_abs = self.file_manager.file_abs_path(self.file_rel)
-        try:
-            with open(file_abs, "r") as fr:
-                code = fr.read()
-        except Exception as e:
-            print(f"Failed to read file {file_abs}: {e}")
-            return
-        self.analyze_code(code)
     
     def analyze_code(self, code: str):
         tree = PARSER.parse(bytes(code, "utf-8"))
@@ -85,6 +73,7 @@ class ProcessingBase(TSVisitor):
         elif node.type == "parenthesized_declarator":
             declarator_node = node.children[-2]
             return self._visit_decl_decl(declarator_node)
+        return node.text.decode("utf-8").strip(), False
 
     def visit_struct_specifier(self, node: TSNode) -> str:
         name_node = node.child_by_field_name("name")
@@ -113,19 +102,21 @@ class ProcessingBase(TSVisitor):
         self.generic_visit(node.child_by_field_name("body"))
         self.name_stack.pop()
 
-    def _create_def_and_scope(self, target_name: str, def_type: DefType, node: Optional[TSNode]=None) -> Tuple[Definition, ScopeItem]:
-        parent_sc = self.scope_manager.get_scope(self.current_ns)
-        target_ns = utils.join_ns(self.current_ns, target_name)
-        sc = self.scope_manager.create_scope(target_ns, parent_sc, node)
-        defi = self.def_manager.get(target_ns)
-        if not defi:
-            defi = self.def_manager.create(target_ns, def_type)
-        parent_sc.add_def(target_name, defi)
-        return defi, sc
+    def _create_def_and_scope(
+        self, target_name: str, def_type: DefType, *, 
+        node: Optional[TSNode]=None, parent_ns: Optional[str]=None
+    ) -> Tuple[Definition, ScopeItem]:
+        if not parent_ns:
+            parent_ns = self.current_ns
 
-    def _create_global_def_and_scope(self, target_name: str, def_type: DefType, node: Optional[TSNode]=None) -> Tuple[Definition, ScopeItem]:
-        parent_sc = self.scope_manager.get_scope(GLOBAL_NAME)
-        target_ns = utils.join_ns(GLOBAL_NAME, target_name)
+        parent_sc = self.scope_manager.get_scope(parent_ns)
+        if not parent_sc:
+            parent_parent_ns = utils.join_ns(*parent_ns.split(".")[:-1])
+            _, parent_sc = self._create_def_and_scope(
+                parent_ns.split(".")[-1], DefType.UNKNOWN, parent_ns=parent_parent_ns)
+
+
+        target_ns = utils.join_ns(parent_ns, target_name)
         sc = self.scope_manager.create_scope(target_ns, parent_sc, node)
         defi = self.def_manager.get(target_ns)
         if not defi:
@@ -136,6 +127,16 @@ class ProcessingBase(TSVisitor):
     @property
     def current_ns(self):
         return ".".join([n for n in self.name_stack if n])
+
+
+
+
+
+
+
+
+
+
 
 
     def _decode_node(self, node: TSNode) -> str | Definition:

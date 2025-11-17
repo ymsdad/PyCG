@@ -27,6 +27,7 @@ class DefType(IntFlag):
     TYPE_DEF = 4
     ROOT_DEF = 8
     EXT_DEF = 16
+    UNKNOWN = 32
 
 GLOBAL_NAME = "<global>"
 RETURN_NAME = "<RETURN>"

@@ -39,6 +39,6 @@ from machinery.scopes import ScopeManager
 def test_preprocessor():
     def_manager = DefinitionManager()
     scope_manager = ScopeManager()
-    preprocessor = PreProcessor(None, def_manager, None, None, scope_manager)
+    preprocessor = PreProcessor(def_manager, None, None, scope_manager)
     preprocessor.analyze_code(test_code1)
     print(1)

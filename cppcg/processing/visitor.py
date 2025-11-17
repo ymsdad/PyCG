@@ -1,5 +1,5 @@
 from tree_sitter import Node as TSNode
-from typing import Any
+from typing import Any, Iterable
 
 
 class TSVisitor:
@@ -8,6 +8,14 @@ class TSVisitor:
         visitor = getattr(self, method, self.generic_visit)
         return visitor(node)
 
-    def generic_visit(self, node: TSNode) -> None:
+    def generic_visit(self, node: TSNode) -> Any:
+        results = []
         for child in node.children:
-            self.visit(child)
+            res = self.visit(child)
+            if res:
+                if isinstance(res, Iterable):
+                    results.extend(res)
+                else:
+                    results.append(res)
+
+        return results
