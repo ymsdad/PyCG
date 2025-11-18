@@ -36,6 +36,7 @@ class ScopeItem(object):
         self.lambda_counter = 0
         self.struct_counter = 0
         self.field_counter = 0
+        self.initializer_counter = 0
         self.fullns = fullns
         self.node = node
 
@@ -59,6 +60,9 @@ class ScopeItem(object):
     def get_field_counter(self) -> int:
         return self.field_counter
 
+    def get_initializer_counter(self) -> int:
+        return self.initializer_counter
+
     def inc_lambda_counter(self, val=1) -> int:
         self.lambda_counter += val
         return self.lambda_counter
@@ -71,10 +75,15 @@ class ScopeItem(object):
         self.field_counter += val
         return self.field_counter
 
+    def inc_initializer_counter(self, val=1) -> int:
+        self.initializer_counter += val
+        return self.initializer_counter
+
     def reset_counters(self):
         self.lambda_counter = 0
         self.struct_counter = 0
         self.field_counter = 0
+        self.initializer_counter = 0
 
     def add_def(self, name: str, defi: Definition):
         self.defs[name] = defi

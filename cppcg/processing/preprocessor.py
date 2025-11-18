@@ -64,6 +64,7 @@ class PreProcessor(ProcessingBase):
         if body_node:
             self.name_stack.append(struct_name)
             self.visit(body_node)
+            self._reset_counters()
             self.name_stack.pop()
 
         return struct_name
@@ -111,6 +112,7 @@ class PreProcessor(ProcessingBase):
             # create return type
             self.name_stack.append(decl_name)
             ret_def, _ = self._create_def_and_scope(RETURN_NAME, DefType.NAME_DEF)
+            self._reset_counters()
             self.name_stack.pop()
             ret_def.get_name_pointer().add(type_name)
             decl_sc.add_def(RETURN_NAME, ret_def)

@@ -47,6 +47,7 @@ class ProcessingBase(TSVisitor):
     def visit_translation_unit(self, node: TSNode):
         self.name_stack.append(GLOBAL_NAME)
         self.generic_visit(node)
+        self._reset_counters()
         self.name_stack.pop()
 
     def visit_function_definition(self, node: TSNode):
@@ -55,6 +56,7 @@ class ProcessingBase(TSVisitor):
             func_name = "<anon>"
         self.name_stack.append(func_name)
         self.generic_visit(node.child_by_field_name("body"))
+        self._reset_counters()
         self.name_stack.pop()
 
     def _visit_decl_decl(self, node: TSNode) -> Tuple[str, bool]:
@@ -86,6 +88,7 @@ class ProcessingBase(TSVisitor):
         if body_node:
             self.name_stack.append(struct_name)
             self.visit(body_node)
+            self._reset_counters()
             self.name_stack.pop()
 
         return struct_name
@@ -100,6 +103,7 @@ class ProcessingBase(TSVisitor):
 
         self.name_stack.append(lambda_name)
         self.generic_visit(node.child_by_field_name("body"))
+        self._reset_counters()
         self.name_stack.pop()
 
     def _create_def_and_scope(
@@ -127,6 +131,11 @@ class ProcessingBase(TSVisitor):
     @property
     def current_ns(self):
         return ".".join([n for n in self.name_stack if n])
+
+    def _reset_counters(self):
+        current_sc = self.scope_manager.get_scope(self.current_ns)
+        if current_sc:
+            current_sc.reset_counters()
 
     def _get_base_type_def(self, type_name="int") -> Definition:
         int_ns = utils.join_ns(GLOBAL_NAME, type_name)

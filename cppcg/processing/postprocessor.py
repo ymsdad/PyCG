@@ -59,64 +59,174 @@ class PostProcessor(ProcessingBase):
             return visitor(node)
         return []
 
-    def visit_call_expression(self, node: TSNode) -> IDefinition:
+    def visit_call_expression(self, node: TSNode) -> List[IDefinition]:
+        results: List[Definition] = []
         func_node = node.child_by_field_name("function")
         if not func_node and node.children:
             func_node = node.children[0]
         if not func_node:
-            return node.text.decode("utf-8").strip()
+            return []
 
-        callee = self.visit_expression(func_node)
+        # Resolve callee definitions
+        callee_vals = self.visit_expression(func_node)
+        func_defs: List[Definition] = []
+        for v in callee_vals:
+            if isinstance(v, Definition) and v.is_function_def():
+                func_defs.append(v)
+            elif isinstance(v, str):
+                d = self.scope_manager.get_def(self.current_ns, v)
+                if d and d.is_function_def():
+                    func_defs.append(d)
+        
+        if not func_defs:
+            return []
 
-        target_def: Optional[Definition] = None
-        if isinstance(callee, Definition):
-            target_def = callee
-        elif isinstance(callee, str):
-            target_def = self.scope_manager.get_def(self.current_ns, callee)
+        # Evaluate call arguments once
+        args_node = node.child_by_field_name("arguments")
+        arg_vals_list: List[List[IDefinition]] = []
+        if args_node:
+            for ch in args_node.children:
+                if not ch.is_named:
+                    continue
+                if ch.type == "compound_statement":
+                    arg_vals_list.append(self.visit_compound_statement(ch))
+                else:
+                    arg_vals_list.append(self.visit_expression(ch))
 
-        if target_def:
-            ret_ns = utils.join_ns(target_def.get_ns(), RETURN_NAME)
+        for func_def in func_defs:
+            func_ns = func_def.get_ns()
+            func_scope = self.scope_manager.get_scope(func_ns)
+            if not func_scope or not func_scope.node:
+                continue
+
+            # Bind arguments to parameters using the function's NamePointer
+            func_name_ptr = func_def.get_name_pointer()
+            pos_to_name = func_name_ptr.get_pos_names()
+            for pos, param_name in pos_to_name.items():
+                try:
+                    idx = int(pos)
+                except (TypeError, ValueError):
+                    continue
+                if idx < 0 or idx >= len(arg_vals_list):
+                    continue
+                arg_vals = arg_vals_list[idx]
+                param_def = func_scope.get_def(param_name)
+                if not param_def:
+                    continue
+                lit_ptr = param_def.get_lit_pointer()
+                name_ptr = param_def.get_name_pointer()
+                for v in arg_vals:
+                    if isinstance(v, Definition):
+                        name_ptr.add(v.get_ns())
+                    elif isinstance(v, (int, str)):
+                        lit_ptr.add(v)
+
+            # Visit the function body in its own namespace
+            func_node_def = func_scope.node
+            if not func_node_def:
+                continue
+            body = func_node_def.child_by_field_name("body")
+            if body:
+                prev_stack = list(self.name_stack)
+                self.name_stack = func_ns.split(".")
+                self.visit(body)
+                self.name_stack = prev_stack
+
+            # Use the function's RETURN_NAME definition as call result
+            ret_ns = utils.join_ns(func_ns, RETURN_NAME)
             ret_def = self.def_manager.get(ret_ns)
             if ret_def:
-                return ret_def
-            return target_def
+                results.append(ret_def)
 
-        # Fallback: create or reuse an anonymous call result definition so
-        # callers like __resolve_asignee_ns can always safely use .get_ns().
-        anon_ns = f"{self.current_ns}.<call>"
-        defi = self.def_manager.get(anon_ns)
-        if not defi:
-            defi = self.def_manager.create(anon_ns, DefType.UNKNOWN)
-        return defi
+        return results
 
-    def visit_assignment_expression(self, node: TSNode) -> IDefinition:
+    def visit_assignment_expression(self, node: TSNode) -> List[IDefinition]:
         left_node = node.child_by_field_name("left")
         right_node = node.child_by_field_name("right")
         if not left_node or not right_node:
-            return f"{self.current_ns}.<anon>"
+            return []
 
-        leftns = self.__resolve_asignee_ns(left_node)
-        right = self.visit_expression(right_node)
-        self.__handle_assign(leftns, right)
+        left_vals = self.visit_expression(left_node)
+        right_vals = self.visit_expression(right_node)
 
-        results: List[IDefinition] = []
-        defi = self.def_manager.get(leftns)
-        if defi:
-            return defi
-        return leftns
+        left_defs = [v for v in left_vals if isinstance(v, Definition)]
+        if not left_defs:
+            # If LHS did not resolve to a definition, nothing to wire.
+            return left_vals
 
-    def visit_return_statement(self, node: TSNode):
-        leftns = utils.join_ns(self.current_ns, RETURN_NAME)
+        for left_def in left_defs:
+            lit_ptr = left_def.get_lit_pointer()
+            name_ptr = left_def.get_name_pointer()
+            for rv in right_vals:
+                if isinstance(rv, Definition):
+                    name_ptr.add(rv.get_ns())
+                elif isinstance(rv, (int, str)):
+                    lit_ptr.add(rv)
 
-    def visit_init_declarator(self, node: TSNode):
+        return left_defs
+
+    def visit_return_statement(self, node: TSNode) -> List[IDefinition] :
+        ret_ns = utils.join_ns(self.current_ns, RETURN_NAME)
+        ret_def = self.def_manager.get(ret_ns)
+        if not ret_def:
+            ret_def, _ = self._create_def_and_scope(RETURN_NAME, DefType.NAME_DEF)
+
+        if len(node.children) >= 2:
+            vals = self.visit_expression(node.children[1])
+            lit_ptr = ret_def.get_lit_pointer()
+            name_ptr = ret_def.get_name_pointer()
+            for v in vals:
+                if isinstance(v, Definition):
+                    name_ptr.add(v.get_ns())
+                elif isinstance(v, (int, str)):
+                    lit_ptr.add(v)
+
+        return [ret_def]
+
+    def visit_init_declarator(self, node: TSNode) -> List[IDefinition]:
         decl_node = node.child_by_field_name("declarator")
         if decl_node:
-            decl_name, _= self._visit_decl_decl(decl_node)
+            decl_name, _ = self._visit_decl_decl(decl_node)
         else:
             field_counter = self.scope_manager.get_scope(self.current_ns).inc_field_counter()
             decl_name = utils.get_field_name(field_counter)
-        leftns = utils.join_ns(self.current_ns, decl_name)
 
+        left_def = self.scope_manager.get_def(self.current_ns, decl_name)
+        if not left_def:
+            left_def, _ = self._create_def_and_scope(decl_name, DefType.NAME_DEF)
+
+        value_node = node.child_by_field_name("value")
+        if not value_node:
+            return [left_def]
+
+        if value_node.type == "initializer_list":
+            right_vals = self.visit_initializer_list(value_node)
+        else:
+            right_vals = self.visit_expression(value_node)
+
+        lit_ptr = left_def.get_lit_pointer()
+        name_ptr = left_def.get_name_pointer()
+        for rv in right_vals:
+            if isinstance(rv, Definition):
+                name_ptr.add(rv.get_ns())
+            elif isinstance(rv, (int, str)):
+                lit_ptr.add(rv)
+        return [left_def]
+
+    def visit_compound_statement(self, node: TSNode) -> List[IDefinition]:
+        last_results: List[IDefinition] = []
+        for child in node.children:
+            if not child.is_named:
+                continue
+            res = self.visit(child)
+            if child.type.endswith("_expression") or child.type in ("expression_statement", "return_statement"):
+                if not res:
+                    last_results = []
+                elif isinstance(res, list):
+                    last_results = res
+                else:
+                    last_results = [res]
+        return last_results
 
     def visit_conditional_expression(self, node: TSNode) -> List[IDefinition]:
         results: List[IDefinition] = []
@@ -216,54 +326,138 @@ class PostProcessor(ProcessingBase):
         # this case can be complicated, the initialized part can be a struct or an array
         # thus its ambiguous to determine the type of the compound literal
         # we will just return the type of the initialized part
-        pass
+        type_node = node.child_by_field_name("type")
+        value_node = node.child_by_field_name("value")
+        if type_node:
+            self.visit(type_node)
+
+        # 1. Create the result definition via the initializer_list.
+        init_def: Optional[Definition] = None
+        if value_node and value_node.type == "initializer_list":
+            init_vals = self.visit_initializer_list(value_node)
+        elif value_node:
+            init_vals = self.visit_expression(value_node)
+        else:
+            init_vals = []
+
+        for v in init_vals:
+            if isinstance(v, Definition):
+                init_def = v
+                break
+
+        if not init_def:
+            # If we couldn't construct an initializer Definition, fall back
+            # to whatever the value expression produced.
+            return init_vals
+
+        # 2. Resolve the type name in scope and add a pointer to the type, if it exists.
+        if type_node:
+            inner_type = type_node.child_by_field_name("type") or type_node
+
+            type_name: Optional[str] = None
+            if inner_type.type in ("type_identifier", "primitive_type"):
+                type_name = inner_type.text.decode("utf-8").strip()
+            elif inner_type.type in ("struct_specifier", "union_specifier", "enum_specifier"):
+                name_node = inner_type.child_by_field_name("name")
+                if name_node:
+                    type_name = name_node.text.decode("utf-8").strip()
+            else:
+                type_name = inner_type.text.decode("utf-8").strip()
+
+            if type_name:
+                type_def = self.scope_manager.get_def(self.current_ns, type_name)
+                if type_def:
+                    init_def.get_name_pointer().add(type_def.get_ns())
+
+        return [init_def]
 
     def visit_field_expression(self, node: TSNode) -> List[IDefinition]:
         # first visit the parent part (argument child ) to get the parent defis
         # then concat the parent defis to the field name to a new ns, create the relevant defi and scope
         # push the current name into stack , then visit child(field) is a better choice
-        pass
+        arg_node = node.child_by_field_name("argument")
+        field_node = node.child_by_field_name("field")
+        if not arg_node or not field_node:
+            return []
+        parent_defis = self.visit_expression(arg_node)
+        field_name = field_node.text.decode("utf-8").strip()
 
-    def __resolve_asignee_ns(self, node: TSNode) -> str:
-        if node.type == "identifier":
-            id_name = node.text.decode("utf-8").strip()
-            defi = self.scope_manager.get_def(self.current_ns, id_name)
-            if not defi:
-                defi, _ = self._create_def_and_scope(id_name, DefType.NAME_DEF)
-            return defi.get_ns()
-        elif node.type == "field_expression":
-            parent_ns = self.__resolve_asignee_ns(node.child_by_field_name("argument"))
-            field_name = node.child_by_field_name("field").text.decode("utf-8").strip()
-            _, field_defi = self._create_def_and_scope(
-                field_name, DefType.NAME_DEF, parent_ns=parent_ns)
-            return field_defi.get_ns()
-        elif node.type == "pointer_expression":
-            return self.__resolve_asignee_ns(node.child_by_field_name("argument"))
-        elif node.type == "subscript_expression":
-            return self.__resolve_asignee_ns(node.child_by_field_name("argument"))
-        elif node.type == "parenthesized_expression":
-            return self.__resolve_asignee_ns(node.children[1])
-        elif node.type == "call_expression":
-            results = self.visit_call_expression(node)
-            for res in results:
-                if isinstance(res, Definition):
-                    return res.get_ns()
-            return f"{self.current_ns}.<anon>"
-        return f"{self.current_ns}.<anon>"
+        results: List[IDefinition] = []
+        for parent in parent_defis:
+            if not isinstance(parent, Definition):
+                continue
+            field_def, _ = self._create_def_and_scope(
+                field_name, DefType.NAME_DEF, parent_ns=parent.get_ns()
+            )
+            results.append(field_def)
+        return results
 
-    def __handle_assign(self, leftns: str, right: IDefinition | List[IDefinition]):
-        defi = self.def_manager.get(leftns)
-        if not defi:
-            defi, _ = self._create_def_and_scope(leftns, DefType.NAME_DEF)
+    def visit_initializer_list(self, node: TSNode) -> List[IDefinition]:
+        # create a initializer_counter defi to hold the initializer list
+        # according to the doc, the child can be a initializer_pair/initializer list or an expression/
+        # if it's initializer list, then visit self function again, and set pos arg for the def
+        # if it's initializer pair, then visit the designator and add_name_arg
+        # else visit expression, and add pos arg
+        # the result is a list contain a single  defi created by a initializer_counter
+        current_sc = self.scope_manager.get_scope(self.current_ns)
+        if not current_sc:
+            return []
 
-        values: List[IDefinition]
-        if isinstance(right, list):
-            values = right
-        else:
-            values = [right]
+        init_idx = current_sc.inc_initializer_counter()
+        init_name = utils.get_initializer_name(init_idx)
 
-        for val in values:
-            if isinstance(val, str):
-                defi.get_lit_pointer().add(val)
-            elif isinstance(val, Definition):
-                defi.get_name_pointer().add(val.get_ns())
+        init_def, _ = self._create_def_and_scope(init_name, DefType.NAME_DEF)
+        name_ptr = init_def.get_name_pointer()
+
+        pos = 0
+        for child in node.children:
+            if not child.is_named:
+                continue
+
+            if child.type == "initializer_pair":
+                designator_node = child.child_by_field_name("designator")
+                value_node = child.child_by_field_name("value")
+                if not designator_node or not value_node:
+                    self.visit(child)
+                    pos += 1
+                    continue
+
+                # Derive a designator name (field or index); fall back to raw text.
+                designator_name = None
+                if designator_node.type == "field_designator":
+                    fld = designator_node.children[1]
+                    if fld:
+                        designator_name = fld.text.decode("utf-8").strip()
+                if not designator_name:
+                    designator_name = designator_node.text.decode("utf-8").strip()
+
+                if value_node.type == "initializer_list":
+                    vals = self.visit_initializer_list(value_node)
+                else:
+                    vals = self.visit_expression(value_node)
+
+                for v in vals:
+                    if isinstance(v, Definition):
+                        name_ptr.add_name_arg(designator_name, v.get_ns())
+                    elif isinstance(v, (int, str)):
+                        name_ptr.add_lit_arg(designator_name, v)
+
+            elif child.type == "initializer_list":
+                vals = self.visit_initializer_list(child)
+                for v in vals:
+                    if isinstance(v, Definition):
+                        name_ptr.add_pos_arg(pos, None, v.get_ns())
+                    elif isinstance(v, (int, str)):
+                        name_ptr.add_pos_lit_arg(pos, None, v)
+                pos += 1
+
+            else:
+                vals = self.visit_expression(child)
+                for v in vals:
+                    if isinstance(v, Definition):
+                        name_ptr.add_pos_arg(pos, None, v.get_ns())
+                    elif isinstance(v, (int, str)):
+                        name_ptr.add_pos_lit_arg(pos, None, v)
+                pos += 1
+
+        return [init_def]

@@ -38,6 +38,8 @@ def get_struct_name(counter):
 def get_field_name(counter):
     return "<field{}>".format(counter)
 
+def get_initializer_name(counter):
+    return "<initializer{}>".format(counter)
 
 def get_int_name(counter):
     return "<int{}>".format(counter)
