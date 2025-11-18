@@ -128,9 +128,13 @@ class ProcessingBase(TSVisitor):
     def current_ns(self):
         return ".".join([n for n in self.name_stack if n])
 
-
-
-
+    def _get_base_type_def(self, type_name="int") -> Definition:
+        int_ns = utils.join_ns(GLOBAL_NAME, type_name)
+        int_def = self.def_manager.get(int_ns)
+        if not int_def:
+            int_def = self.def_manager.create(int_ns, DefType.TYPE_DEF)
+        return int_def
+        
 
 
 
