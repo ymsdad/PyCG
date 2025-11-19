@@ -165,3 +165,7 @@ cython_debug/
 micro-benchmark/*_test.py
 micro-benchmark-key-errs/*_test.py
 example_supervision
+test_example_cg.json
+
+# drafts
+/drafts

@@ -1,37 +1,11 @@
 import sys
 from pathlib import Path
 
-import pytest
-
 # Make cppcg package importable
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "cppcg"))
 
-test_code = """
-typedef struct {
-    int x;
-    int y;
-    int (*func)(int, int);
-} Point;
-
-int add(int a, int b) {
-    return a + b;
-}
-
-Point p;
-Point *init(int x, int y) {
-    Point *new_point = malloc(sizeof(Point));
-    new_point->x = x;
-    new_point->y = y;
-    new_point->func = add;
-    return new_point;
-}
-
-int main() {
-    Point *p = init(1, 2);
-    printf("%d\\n", p->func(p->x, p->y));
-    return 0;
-}
-"""
+TEST_FILE = Path(__file__).resolve().parents[2] / "benchmarks/micro-benchmark/test_example.c"
+test_code = TEST_FILE.read_text()
 
 from processing.preprocessor import PreProcessor
 from processing.postprocessor import PostProcessor
@@ -122,8 +96,3 @@ def test_assignment_graph():
     # main.p.x -> init.<RETURN>.x -> init.new_point.x -> init.x -> lit[1]
     main_p_x_exists = any("main.p.x" in name for name in add_a_names)
     print(f"add.a points to main.p.x: {main_p_x_exists}")
-
-
-if __name__ == "__main__":
-    test_struct_field_positions()
-    test_assignment_graph()
