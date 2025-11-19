@@ -59,10 +59,11 @@ class PreProcessor(ProcessingBase):
         else: 
             struct_counter = self.scope_manager.get_scope(self.current_ns).inc_struct_counter()
             struct_name = utils.get_struct_name(struct_counter)
-        self._create_def_and_scope(struct_name, DefType.TYPE_DEF, node=node)
+        struct_def, struct_sc = self._create_def_and_scope(struct_name, DefType.TYPE_DEF, node=node)
         body_node = node.child_by_field_name("body")
         if body_node:
             self.name_stack.append(struct_name)
+            # Visit the body normally - field_declaration nodes will be handled by visit_field_declaration
             self.visit(body_node)
             self._reset_counters()
             self.name_stack.pop()
@@ -70,7 +71,59 @@ class PreProcessor(ProcessingBase):
         return struct_name
 
     def visit_field_declaration(self, node: TSNode):
-        self.__visit_declaration(node)
+        """Handle field declaration within a struct.
+        
+        At this point, current_ns is the struct's namespace (pushed by visit_struct_specifier).
+        We create the field definition and register it as a positional argument in the parent struct's NamePointer.
+        """
+        # Get the parent struct scope and definition via current_ns
+        struct_scope = self.scope_manager.get_scope(self.current_ns)
+        if not struct_scope:
+            return
+        
+        struct_def = self.def_manager.get(self.current_ns)
+        if not struct_def:
+            return
+        
+        # The position is the current field_counter value (before any increment)
+        pos = struct_scope.get_field_counter()
+        
+        # Parse the field declaration
+        type_name = self.__visit_decl_type(node.child_by_field_name("type"))
+        decl_node = node.child_by_field_name("declarator")
+        if decl_node:
+            decl_name, is_func = self._visit_decl_decl(decl_node)
+        else:
+            # For unnamed fields, generate a name using the counter
+            field_counter = struct_scope.inc_field_counter()
+            decl_name = utils.get_field_name(field_counter)
+            is_func = False
+        
+        deftype = DefType.NAME_DEF
+        if is_func:
+            deftype = DefType.FUNC_DEF | DefType.NAME_DEF
+        
+        # Create field definition
+        decl_def, decl_sc = self._create_def_and_scope(decl_name, deftype)
+        decl_def.get_name_pointer().add(type_name)
+        
+        if deftype & DefType.FUNC_DEF:
+            # Function pointer field: create return type
+            self.name_stack.append(decl_name)
+            ret_def, _ = self._create_def_and_scope(RETURN_NAME, DefType.NAME_DEF)
+            self._reset_counters()
+            self.name_stack.pop()
+            ret_def.get_name_pointer().add(type_name)
+            decl_sc.add_def(RETURN_NAME, ret_def)
+        
+        # Register field as positional argument in the parent struct's NamePointer
+        struct_name_ptr = struct_def.get_name_pointer()
+        field_ns = utils.join_ns(struct_def.get_ns(), decl_name)
+        struct_name_ptr.add_pos_arg(pos, decl_name, field_ns)
+        
+        # Increment field counter for next field (if this was a named field)
+        if decl_node:
+            struct_scope.inc_field_counter()
 
     def visit_enumerator(self, node: TSNode):
         name_node = node.child_by_field_name("name")

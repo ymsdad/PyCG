@@ -59,8 +59,177 @@ class PostProcessor(ProcessingBase):
             return visitor(node)
         return []
 
-    def visit_call_expression(self, node: TSNode) -> List[IDefinition]:
+    def _assign_from_values(self, left_def: Definition, right_vals: List[IDefinition]):
+        """Wire values in right_vals into left_def's pointers.
+
+        This centralizes assignment semantics so it can be reused from
+        regular assignments, initializers, returns, and parameter binding.
+        It also handles the special case of struct variables initialized
+        from an initializer_list result.
+        """
+        lit_ptr = left_def.get_lit_pointer()
+        name_ptr = left_def.get_name_pointer()
+
+        for rv in right_vals:
+            if isinstance(rv, Definition):
+                name_ptr.add(rv.get_ns())
+            elif isinstance(rv, (int, str)):
+                lit_ptr.add(rv)
+
+        # Special-case: struct-like object initialized from an initializer_list
+        self._assign_struct_fields_from_initializers(left_def, right_vals)
+
+    def _resolve_struct_type(self, var_def: Definition) -> Optional[Definition]:
+        """Try to resolve the struct/union type definition of a variable.
+
+        We follow the variable's type names (stored in its NamePointer values)
+        and any typedef indirections, and return the first TYPE_DEF whose
+        scope contains NAME_DEF fields (as produced by PreProcessor's
+        visit_field_declaration).
+        """
+        name_ptr = var_def.get_name_pointer()
+        to_visit = list(name_ptr.get())
+        visited: set[str] = set()
+
+        while to_visit:
+            name = to_visit.pop()
+            if name in visited:
+                continue
+            visited.add(name)
+
+            # Look up a type definition for this name in the visible scopes
+            # or in the global definition manager as a fallback.
+            type_def = self.scope_manager.get_def(self.current_ns, name)
+            if not type_def:
+                type_def = self.def_manager.get(name)
+            if not type_def:
+                continue
+
+            if not (type_def.get_type() & DefType.TYPE_DEF):
+                continue
+
+            # A "struct-like" type is any TYPE_DEF whose scope has NAME_DEF
+            # entries (its fields), regardless of whether the scope node was
+            # stored (typedefs typically have no node saved).
+            type_scope = self.scope_manager.get_scope(type_def.get_ns())
+            if type_scope:
+                defs = type_scope.get_defs()
+                if any(d.get_type() & DefType.NAME_DEF for d in defs.values()):
+                    return type_def
+
+            # Otherwise follow typedef chains via the type's own name pointer.
+            for next_name in type_def.get_name_pointer().get():
+                if next_name not in visited:
+                    to_visit.append(next_name)
+
+        return None
+
+    def _assign_struct_fields_from_initializers(
+        self, left_def: Definition, right_vals: List[IDefinition]
+    ):
+        """If left_def is a struct-like object and right_vals contain
+        initializer_list result definitions, map initializer elements to
+        per-field definitions under left_def's namespace.
+        """
+        struct_def = self._resolve_struct_type(left_def)
+        if not struct_def:
+            return
+
+        struct_scope = self.scope_manager.get_scope(struct_def.get_ns())
+        if not struct_scope:
+            return
+
+        struct_defs = struct_scope.get_defs()
+        field_names: List[str] = [
+            name
+            for name, defi in struct_defs.items()
+            if defi.get_type() & DefType.NAME_DEF
+        ]
+        if not field_names:
+            return
+
+        # Collect initializer_list result definitions from RHS.
+        init_defs: List[Definition] = []
+        for rv in right_vals:
+            if isinstance(rv, Definition) and not rv.is_function_def():
+                init_np = rv.get_name_pointer()
+                if init_np.get_args():
+                    init_defs.append(rv)
+
+        if not init_defs:
+            return
+
+        for init_def in init_defs:
+            init_np = init_def.get_name_pointer()
+
+            for idx, field_name in enumerate(field_names):
+                # Create / get the field definition under the instance namespace.
+                field_def, _ = self._create_def_and_scope(
+                    field_name, DefType.NAME_DEF, parent_ns=left_def.get_ns()
+                )
+
+                # Prefer named designators (e.g., .y = ...) over positional ones.
+                src = init_np.get_arg(field_name)
+                if not src:
+                    src = init_np.get_pos_arg(idx)
+                if not src:
+                    continue
+
+                for item in src:
+                    target_def = self.def_manager.get(item)
+                    if target_def:
+                        field_def.get_name_pointer().add(target_def.get_ns())
+                    else:
+                        # For literals we only know their kind (STRING/INTEGER/UNKNOWN).
+                        field_def.get_lit_pointer().add(item)
+
+    def _resolve_call_targets(self, callee_vals: List[IDefinition]) -> List[Definition]:
+        """Compute a closure of possible function targets for a call.
+
+        Starting from direct callee values, recursively traverse name
+        pointers to discover all reachable function definitions.
+        """
+        start_defs: List[Definition] = []
+        for v in callee_vals:
+            if isinstance(v, Definition):
+                start_defs.append(v)
+            elif isinstance(v, str):
+                d = self.def_manager.get(v)
+                if not d:
+                    d = self.scope_manager.get_def(self.current_ns, v)
+                if d:
+                    start_defs.append(d)
+
         results: List[Definition] = []
+        visited = set()
+        stack: List[Definition] = list(start_defs)
+
+        while stack:
+            d = stack.pop()
+            ns = d.get_ns()
+            if ns in visited:
+                continue
+            visited.add(ns)
+
+            if d.is_function_def():
+                results.append(d)
+
+            name_ptr = d.get_name_pointer()
+            for name in name_ptr.get():
+                if name in visited:
+                    continue
+                target = self.def_manager.get(name)
+                if target:
+                    stack.append(target)
+                else:
+                    scope_def = self.scope_manager.get_def(self.current_ns, name)
+                    if scope_def:
+                        stack.append(scope_def)
+
+        return results
+
+    def visit_call_expression(self, node: TSNode) -> List[IDefinition]:
+        results: List[IDefinition] = []
         func_node = node.child_by_field_name("function")
         if not func_node and node.children:
             func_node = node.children[0]
@@ -69,19 +238,10 @@ class PostProcessor(ProcessingBase):
 
         # Resolve callee definitions
         callee_vals = self.visit_expression(func_node)
-        func_defs: List[Definition] = []
-        for v in callee_vals:
-            if isinstance(v, Definition) and v.is_function_def():
-                func_defs.append(v)
-            elif isinstance(v, str):
-                d = self.scope_manager.get_def(self.current_ns, v)
-                if d and d.is_function_def():
-                    func_defs.append(d)
-        
-        if not func_defs:
-            return []
+        func_defs = self._resolve_call_targets(callee_vals)
 
-        # Evaluate call arguments once
+        # Evaluate call arguments BEFORE checking if func_defs is empty,
+        # so that nested calls are visited even if the outer call target is unknown
         args_node = node.child_by_field_name("arguments")
         arg_vals_list: List[List[IDefinition]] = []
         if args_node:
@@ -92,6 +252,9 @@ class PostProcessor(ProcessingBase):
                     arg_vals_list.append(self.visit_compound_statement(ch))
                 else:
                     arg_vals_list.append(self.visit_expression(ch))
+
+        if not func_defs:
+            return []
 
         for func_def in func_defs:
             func_ns = func_def.get_ns()
@@ -113,13 +276,7 @@ class PostProcessor(ProcessingBase):
                 param_def = func_scope.get_def(param_name)
                 if not param_def:
                     continue
-                lit_ptr = param_def.get_lit_pointer()
-                name_ptr = param_def.get_name_pointer()
-                for v in arg_vals:
-                    if isinstance(v, Definition):
-                        name_ptr.add(v.get_ns())
-                    elif isinstance(v, (int, str)):
-                        lit_ptr.add(v)
+                self._assign_from_values(param_def, arg_vals)
 
             # Visit the function body in its own namespace
             func_node_def = func_scope.node
@@ -155,13 +312,7 @@ class PostProcessor(ProcessingBase):
             return left_vals
 
         for left_def in left_defs:
-            lit_ptr = left_def.get_lit_pointer()
-            name_ptr = left_def.get_name_pointer()
-            for rv in right_vals:
-                if isinstance(rv, Definition):
-                    name_ptr.add(rv.get_ns())
-                elif isinstance(rv, (int, str)):
-                    lit_ptr.add(rv)
+            self._assign_from_values(left_def, right_vals)
 
         return left_defs
 
@@ -173,13 +324,7 @@ class PostProcessor(ProcessingBase):
 
         if len(node.children) >= 2:
             vals = self.visit_expression(node.children[1])
-            lit_ptr = ret_def.get_lit_pointer()
-            name_ptr = ret_def.get_name_pointer()
-            for v in vals:
-                if isinstance(v, Definition):
-                    name_ptr.add(v.get_ns())
-                elif isinstance(v, (int, str)):
-                    lit_ptr.add(v)
+            self._assign_from_values(ret_def, vals)
 
         return [ret_def]
 
@@ -204,13 +349,7 @@ class PostProcessor(ProcessingBase):
         else:
             right_vals = self.visit_expression(value_node)
 
-        lit_ptr = left_def.get_lit_pointer()
-        name_ptr = left_def.get_name_pointer()
-        for rv in right_vals:
-            if isinstance(rv, Definition):
-                name_ptr.add(rv.get_ns())
-            elif isinstance(rv, (int, str)):
-                lit_ptr.add(rv)
+        self._assign_from_values(left_def, right_vals)
         return [left_def]
 
     def visit_compound_statement(self, node: TSNode) -> List[IDefinition]:
@@ -372,9 +511,11 @@ class PostProcessor(ProcessingBase):
         return [init_def]
 
     def visit_field_expression(self, node: TSNode) -> List[IDefinition]:
-        # first visit the parent part (argument child ) to get the parent defis
-        # then concat the parent defis to the field name to a new ns, create the relevant defi and scope
-        # push the current name into stack , then visit child(field) is a better choice
+        """Handle field access (both . and ->).
+        
+        For each parent definition, create a field definition and link it
+        to the struct's corresponding field AND to all reachable instance fields.
+        """
         arg_node = node.child_by_field_name("argument")
         field_node = node.child_by_field_name("field")
         if not arg_node or not field_node:
@@ -386,10 +527,56 @@ class PostProcessor(ProcessingBase):
         for parent in parent_defis:
             if not isinstance(parent, Definition):
                 continue
+            
+            # Create the instance field definition
             field_def, _ = self._create_def_and_scope(
                 field_name, DefType.NAME_DEF, parent_ns=parent.get_ns()
             )
             results.append(field_def)
+            
+            # Try to resolve the parent's struct type and link to struct field
+            struct_def = self._resolve_struct_type(parent)
+            if struct_def:
+                struct_scope = self.scope_manager.get_scope(struct_def.get_ns())
+                if struct_scope:
+                    struct_field_def = struct_scope.get_def(field_name)
+                    if struct_field_def:
+                        # Link instance field to struct field
+                        field_def.get_name_pointer().add(struct_field_def.get_ns())
+                        # Copy struct field's type/function pointers to instance field
+                        for ptr_name in struct_field_def.get_name_pointer().get():
+                            field_def.get_name_pointer().add(ptr_name)
+            
+            # Also follow the parent's name pointers to find actual instance fields
+            # E.g., if parent points to init.<RETURN> which points to init.new_point,
+            # then link to init.new_point.field_name
+            visited = set()
+            to_visit = list(parent.get_name_pointer().get())
+            while to_visit:
+                target_ns = to_visit.pop()
+                if target_ns in visited:
+                    continue
+                visited.add(target_ns)
+                
+                target_def = self.def_manager.get(target_ns)
+                if not target_def:
+                    continue
+                
+                # Check if this target has a field with the same name
+                target_field_ns = utils.join_ns(target_ns, field_name)
+                target_field_def = self.def_manager.get(target_field_ns)
+                if target_field_def:
+                    # Link to this field
+                    field_def.get_name_pointer().add(target_field_ns)
+                    # Copy its pointers too
+                    for ptr_name in target_field_def.get_name_pointer().get():
+                        field_def.get_name_pointer().add(ptr_name)
+                
+                # Continue following the chain
+                for next_ns in target_def.get_name_pointer().get():
+                    if next_ns not in visited:
+                        to_visit.append(next_ns)
+        
         return results
 
     def visit_initializer_list(self, node: TSNode) -> List[IDefinition]:
