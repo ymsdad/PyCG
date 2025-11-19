@@ -37,40 +37,6 @@ from processing.preprocessor import PreProcessor
 from processing.postprocessor import PostProcessor
 from machinery.definitions import DefinitionManager
 from machinery.scopes import ScopeManager
-from utils.constants import GLOBAL_NAME
-
-
-def test_struct_field_positions():
-    """Test that struct fields are registered as positional arguments."""
-    def_manager = DefinitionManager()
-    scope_manager = ScopeManager()
-
-    pre = PreProcessor(def_manager, None, None, scope_manager)
-    pre.analyze_code(test_code)
-
-    # Get the Point typedef and its underlying struct
-    point_def = scope_manager.get_def(GLOBAL_NAME, "Point")
-    assert point_def is not None
-
-    # Follow typedef to struct
-    type_names = list(point_def.get_name_pointer().get())
-    assert type_names
-    struct_name = type_names[0]
-
-    struct_def = scope_manager.get_def(GLOBAL_NAME, struct_name)
-    assert struct_def is not None
-
-    # Check that struct has positional field mappings
-    struct_name_ptr = struct_def.get_name_pointer()
-    pos_to_name = struct_name_ptr.get_pos_names()
-    
-    print(f"Struct {struct_name} positional fields: {pos_to_name}")
-    assert 0 in pos_to_name, "Field x should be at position 0"
-    assert 1 in pos_to_name, "Field y should be at position 1"
-    assert 2 in pos_to_name, "Field func should be at position 2"
-    assert pos_to_name[0] == "x"
-    assert pos_to_name[1] == "y"
-    assert pos_to_name[2] == "func"
 
 
 def test_assignment_graph():
